@@ -1,0 +1,46 @@
+<Window x:Class="VoiceInput.Desktop.Hud.HudWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Voice Input"
+        Width="440"
+        Height="86"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowActivated="False"
+        ShowInTaskbar="False"
+        Topmost="True"
+        Focusable="False">
+    <Border Background="#F21D2024"
+            BorderBrush="#45515B"
+            BorderThickness="1"
+            CornerRadius="6"
+            Padding="14,11">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="18" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Ellipse x:Name="AccentDot"
+                     Width="9"
+                     Height="9"
+                     VerticalAlignment="Top"
+                     Margin="0,5,0,0"
+                     Fill="#37D67A" />
+            <StackPanel Grid.Column="1">
+                <TextBlock x:Name="StatusText"
+                           Foreground="#F5F7F8"
+                           FontSize="13"
+                           FontWeight="SemiBold"
+                           Text="Listening" />
+                <TextBlock x:Name="TranscriptText"
+                           Margin="0,5,0,0"
+                           Foreground="#D6DBDF"
+                           FontSize="14"
+                           TextTrimming="CharacterEllipsis"
+                           Text="Speak now" />
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

@@ -1,0 +1,125 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+secrets/
+credentials/
+*.key
+*.pem
+*.pfx
+*.p12
+appsettings.Local.json
+appsettings.*.local.json
+
+# Local AI tool state
+/.codex/
+/.agents/
+/.claude/
+
+# C# / .NET
+bin/
+obj/
+TestResults/
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+*.nupkg
+*.snupkg
+
+# Visual Studio
+.vs/
+
+# VS Code
+.vscode/*
+!.vscode/extensions.json
+
+# JetBrains
+.idea/
+*.sln.iml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.venv/
+venv/
+env/
+ENV/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Build artifacts
+artifacts/
+out/
+publish/
+releases/
+.cache/
+.zig-cache/
+zig-cache/
+zig-out/
+
+# Local logs
+logs/
+*.log
+
+# Temporary audio files
+# Add explicit exceptions only for reviewed, required audio resources.
+tmp_audio/
+temp_audio/
+recordings/
+recording/
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+*.aac
+*.pcm
+*.wma
+*.opus
+*.aiff
+*.aif
+*.raw
+
+# Private transcription output (keep source modules and test code)
+transcripts/
+transcriptions/
+transcript*.txt
+transcript*.json
+transcript*.jsonl
+transcript*.csv
+transcription*.txt
+transcription*.json
+transcription*.jsonl
+transcription*.csv
+*.srt
+*.vtt
+
+# Temporary local files
+tmp/
+temp/
+*.tmp
+*.bak
+*.dmp
+
+# Local test output
+test-output/
+test-results/
+coverage/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

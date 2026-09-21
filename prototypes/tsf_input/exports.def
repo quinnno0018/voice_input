@@ -1,0 +1,6 @@
+LIBRARY VoiceInput.TsfProbe
+EXPORTS
+    DllGetClassObject
+    DllCanUnloadNow
+    DllRegisterServer
+    DllUnregisterServer
