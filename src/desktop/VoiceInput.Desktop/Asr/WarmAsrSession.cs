@@ -9,6 +9,7 @@ public sealed class WarmAsrSession : IAsyncDisposable
     private readonly TimeSpan _lifetime;
     private readonly Action<string>? _diagnostics;
     private readonly CancellationTokenSource _warmCancellation = new();
+    private readonly CancellationTokenSource _stopSilence = new();
     private readonly object _sync = new();
     private Task? _prepareTask;
     private Task? _silenceTask;
@@ -59,13 +60,15 @@ public sealed class WarmAsrSession : IAsyncDisposable
             }
 
             _claimed = true;
-            _warmCancellation.Cancel();
+            _stopSilence.Cancel();
             silenceTask = _silenceTask;
         }
 
         try
         {
-            await IgnoreCancellation(silenceTask);
+            if (silenceTask is not null)
+                await silenceTask.WaitAsync(TimeSpan.FromSeconds(1), cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
         }
         catch
         {
@@ -75,6 +78,7 @@ public sealed class WarmAsrSession : IAsyncDisposable
             throw;
         }
         _warmCancellation.Dispose();
+        _stopSilence.Dispose();
         Report(_diagnostics, "warm_claimed");
         return _provider;
     }
@@ -91,6 +95,7 @@ public sealed class WarmAsrSession : IAsyncDisposable
             }
 
             _disposed = true;
+            _stopSilence.Cancel();
             _warmCancellation.Cancel();
             preparation = _prepareTask;
             silenceTask = _silenceTask;
@@ -100,6 +105,7 @@ public sealed class WarmAsrSession : IAsyncDisposable
         await IgnoreFailure(silenceTask);
         await CompleteAndDisposeProviderAsync();
         _warmCancellation.Dispose();
+        _stopSilence.Dispose();
     }
 
     private async Task PrepareCoreAsync()
@@ -120,12 +126,18 @@ public sealed class WarmAsrSession : IAsyncDisposable
     private async Task PumpSilenceAsync(CancellationToken cancellationToken)
     {
         var silence = new byte[_audio.BytesPerChunk];
-        while (true)
+        while (!_stopSilence.IsCancellationRequested)
         {
+            // Stop between sends: cancelling an in-flight WebSocket send can abort the socket.
             await _provider.SendAudioAsync(silence, cancellationToken);
-            await Task.Delay(
-                _audio.ChunkMilliseconds,
-                cancellationToken);
+            try
+            {
+                await Task.Delay(_audio.ChunkMilliseconds, _stopSilence.Token);
+            }
+            catch (OperationCanceledException) when (_stopSilence.IsCancellationRequested)
+            {
+                return;
+            }
         }
     }
 
@@ -133,7 +145,7 @@ public sealed class WarmAsrSession : IAsyncDisposable
     {
         try
         {
-            await Task.Delay(_lifetime, _warmCancellation.Token);
+            await Task.Delay(_lifetime, _stopSilence.Token);
         }
         catch (OperationCanceledException)
         {
@@ -147,6 +159,7 @@ public sealed class WarmAsrSession : IAsyncDisposable
             {
                 _expired = true;
                 _disposed = true;
+                _stopSilence.Cancel();
                 _warmCancellation.Cancel();
                 shouldDispose = true;
             }
@@ -161,6 +174,7 @@ public sealed class WarmAsrSession : IAsyncDisposable
         await IgnoreFailure(_silenceTask);
         await CompleteAndDisposeProviderAsync();
         _warmCancellation.Dispose();
+        _stopSilence.Dispose();
     }
 
     private async Task CompleteAndDisposeProviderAsync()
@@ -187,22 +201,6 @@ public sealed class WarmAsrSession : IAsyncDisposable
     {
         try { diagnostics?.Invoke(metadata); }
         catch (Exception) { /* Diagnostic sinks must not affect connection ownership. */ }
-    }
-
-    private static async Task IgnoreCancellation(Task? task)
-    {
-        if (task is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await task;
-        }
-        catch (OperationCanceledException)
-        {
-        }
     }
 
     private static async Task IgnoreFailure(Task? task)

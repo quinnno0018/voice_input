@@ -17,6 +17,7 @@ public sealed class ParaformerRealtimeProvider(AppConfig config, Action<string>?
     private bool _completed;
     private long _eventSequence;
     private long _audioSequence;
+    private long _receiveSequence;
 
     public async Task ConnectAsync(CancellationToken cancellationToken)
     {
@@ -87,14 +88,19 @@ public sealed class ParaformerRealtimeProvider(AppConfig config, Action<string>?
             });
     }
 
-    internal static async ValueTask MeasureSendAsync(Func<ValueTask> send, Action<double, double, string> report)
+    internal static ValueTask MeasureSendAsync(Func<ValueTask> send, Action<double, double, string> report) =>
+        MeasureIoAsync(send, (started, completed, resumed, outcome) => report(
+            Stopwatch.GetElapsedTime(started, completed).TotalMilliseconds,
+            Stopwatch.GetElapsedTime(completed, resumed).TotalMilliseconds, outcome));
+
+    private static async ValueTask MeasureIoAsync(Func<ValueTask> operation, Action<long, long, long, string> report)
     {
         var started = Stopwatch.GetTimestamp();
         long completed = 0;
         var outcome = "failed";
         try
         {
-            var pending = send().AsTask();
+            var pending = operation().AsTask();
             // Observe completion without the WPF context, then resume on the original context.
             await pending.ContinueWith(_ => { completed = Stopwatch.GetTimestamp(); },
                 CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
@@ -112,10 +118,9 @@ public sealed class ParaformerRealtimeProvider(AppConfig config, Action<string>?
             if (completed == 0) completed = resumed;
             try
             {
-                report(Stopwatch.GetElapsedTime(started, completed).TotalMilliseconds,
-                    Stopwatch.GetElapsedTime(completed, resumed).TotalMilliseconds, outcome);
+                report(started, completed, resumed, outcome);
             }
-            catch (Exception) { /* Diagnostic sinks must not change send completion or failure. */ }
+            catch (Exception) { /* Diagnostic sinks must not change I/O completion or failure. */ }
         }
     }
 
@@ -238,7 +243,28 @@ public sealed class ParaformerRealtimeProvider(AppConfig config, Action<string>?
 
         while (true)
         {
-            var result = await _socket.ReceiveAsync(buffer, cancellationToken);
+            WebSocketReceiveResult result;
+            if (diagnostics is null)
+            {
+                result = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
+            }
+            else
+            {
+                var readSequence = ++_receiveSequence;
+                WebSocketReceiveResult? received = null;
+                await MeasureIoAsync(async () =>
+                {
+                    received = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken)
+                        .ConfigureAwait(false);
+                }, (started, completed, resumed, outcome) =>
+                {
+                    var metadata = $"websocket_receive task={_taskId} read_seq={readSequence} message_seq={_eventSequence + 1} phase={(_connected ? "stream" : "connect")} "
+                        + $"bytes={received?.Count ?? 0} message_type={received?.MessageType.ToString() ?? "unknown"} end_of_message={received?.EndOfMessage.ToString() ?? "unknown"} "
+                        + $"start_tick={started} completion_tick={completed} resume_tick={resumed} clock_hz={Stopwatch.Frequency} ";
+                    diagnostics(metadata + FormattableString.Invariant($"completion_observed_ms={Stopwatch.GetElapsedTime(started, completed).TotalMilliseconds:F3} continuation_delay_ms={Stopwatch.GetElapsedTime(completed, resumed).TotalMilliseconds:F3} outcome={outcome}"));
+                });
+                result = received!;
+            }
             if (result.MessageType == WebSocketMessageType.Close)
             {
                 throw new AsrProviderException(

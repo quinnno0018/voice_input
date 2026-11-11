@@ -1,5 +1,132 @@
 # Testing
 
+## 错误提示手动关闭（2026-10-09，本地通过，鼠标实测待确认）
+
+- 用户报告错误 HUD 必须退出托盘才能消失。本次授权仅新增错误状态右上角关闭图标：点击调用 HideHud，停止待刷新 partial 并隐藏窗口，不调用退出、重连或开始录音；连接／录音状态不显示该按钮。保持 ShowActivated=false、WS_EX_NOACTIVATE 与按钮不可聚焦，固定按钮列避免状态变化引起布局位移。使用 Windows 自带 Segoe MDL2 Assets 关闭图标，无第三方依赖。
+- 测试项目启用 WPF 框架引用，STA 线程直接测试真实 HudWindow 的按钮事件：错误可隐藏、隐藏后可再次显示录音／连接状态、第二次错误仍可关闭。旧实现 56 项中新增测试因缺少按钮失败，其余 55 项通过；修复后 Release solution 构建 0 警告／错误，56 项全部通过。测试核对非激活配置，不等同于真实鼠标焦点验收。Python 和 native 本轮未修改、未重跑；没有调用真实 ASR。
+- 构建在独立 tsf-error-dismiss 目录。先退出旧托盘 host，再用已设置 Key 的 PowerShell 启动下方版本。下次自然出现错误时点击右上角关闭图标，确认提示消失、托盘仍在、没有自动录音；再次按快捷键才开始新一轮。无需故意断网触发错误，也不重新注册输入法。
+
+```powershell
+Set-Location D:\proj\voice_input
+& .\artifacts\toolchains\dotnet-10.0.400\dotnet.exe .\src\desktop\VoiceInput.Desktop\bin\tsf-error-dismiss\Release\net10.0-windows\VoiceInput.Desktop.dll --tsf-asr
+```
+
+### 同日晚间发送积压复发（尚未解决）
+
+- 用户确认由有线改为 WiFi；VPN 节点等其他条件尚未确认。20:20 左右会话 b794aadc4b58418c9d5e988f3b99169a 为 cold / expired，ready 后采集，多次发送耗时约 200–700 ms，末次约 1428 ms，队列积压 5000 ms、dropped_audio_chunks=9，最终 AudioQueueOverflow。不是预连接交接取消复发，也没有证据证明错字触发程序异常。
+- 用户提供原话「脆脆齐齐哈尔风味烧烤料」，识别为「脆脆七七。哈尔风味烧烤料。」；是识别／断句待查样本，不能由此断言发音或 WiFi 是唯一根因。建议保持 VPN、版本、测试句一致，仅切回有线对照；本次关闭提示修复不修改发送缓冲、识别参数或采集。
+
+## 预连接修复真实复测（2026-10-09，三轮通过）
+
+- 用户确认三轮均成功唤醒并识别，同一快捷键停止后文字保留，无报错，主观反馈「唤醒也挺快的」。另反馈识别内容不够准确，仍待单独排查；没有原始讲话对照，不能计算识别准确率。本次网络条件未重新确认，不外推到所有网络。
+- 核对 tsf-warm-handoff/logs/desktop-tsf-asr.log：北京时间 09:40:38、09:43:08、09:44:55 的三次 session 均使用 warm，均正常 session_end，session_error 为 0。对应 Partial / Stable 写入确认数为 29 / 8、15 / 2、10 / 3。
+- session_start 到 capture_started 分别约 1906、68、69 ms。这是客户端会话开始到录音启动，不是物理按键到 HUD 显示、讲话到文字的延迟；第一轮仍有等待，不能宣称每轮都是即时启动。
+- 此次接受连接交接修复的有限真实复测，不代表此前网络慢发送已彻底解决或 Phase 6 全部完成。下一步保持本轮构建与参数，先收集同一测试句的预期文字／实际识别对照，再决定准确度排查方向；无需继续机械重复相同启停测试。
+
+## 预连接发送交接修复（2026-10-08，本地通过，真实连接待测）
+
+- 当天真实日志确认快捷键与 host 已启动。22:24:16 的连接等待被取消；22:24:25 另一次 warm claim 取消了正在进行的发送（约 461 ms），随后 capture_started 后立即 AsrProviderException。后续预热发送多次超过 100 ms，最大约 1740 ms。不能把全部失败归因于 Key、麦克风或 VPN，网络／服务路径仍待定位。
+- 代码与回归测试确认旧交接会取消在途发送，并吞掉 OperationCanceledException 后仍返回该 provider。修复仅在 WarmAsrSession：停止继续预热与中断连接使用不同取消信号；交接最多等待在途发送 1 秒。正常完成才复用；超时、发送失败／取消则释放旧 provider，走已有 cold fallback；用户取消交接不启动 cold。1 秒是交接等待上限，不是整个重新连接耗时上限。录音仍在 provider ready 后开始。
+- 未改变 Paraformer 协议、模型、100 ms chunk、采集、HUD、快捷键、TSF native、输入保护或 Key。没有改系统配置或重新注册输入法。新构建在独立 tsf-warm-handoff 目录，旧构建与日志保留。
+- 回归测试先在旧实现运行，4 项新测试全部按预期失败。沙箱中另外 3 项回环 WebSocket 测试报无效句柄、2 项命名管道测试报拒绝访问；经授权在允许本地 IPC 的环境复跑，修复后全部 55 项 C# 测试通过。Release solution 构建 0 警告、0 错误。测试覆盖在途发送完成后复用、发送卡住后的释放与冷连接、用户取消时不重连、发送自身取消时不得复用，以及既有过期、失败和诊断路径。
+- Python 全部 65 项测试通过（75.589 秒），通过 VOICE_INPUT_TEST_DOTNET / VOICE_INPUT_TEST_ASSEMBLY 指向本地 SDK 与 tsf-warm-handoff 测试程序集，包含 C#／Python 本地对照。git diff --check 通过，仅有既有 CRLF 转换提示。Python 与 native 源码未改，native 测试本轮未重跑。
+- 本次没有云端／麦克风实测，尚不能声称真实网络连接问题全部解决。下一步先退出托盘旧 host，在已设置 Key 的同一 PowerShell 启动下方版本，记事本选 Voice Input TSF Probe，按 Ctrl+Alt+J，等待 Speak now 后说 10–20 秒，再停止；连续做三轮，核对是否仍有启动即报错及首个非空 partial。
+
+```powershell
+Set-Location D:\proj\voice_input
+& .\artifacts\toolchains\dotnet-10.0.400\dotnet.exe .\src\desktop\VoiceInput.Desktop\bin\tsf-warm-handoff\Release\net10.0-windows\VoiceInput.Desktop.dll --tsf-asr
+```
+
+## 接收调度计时（2026-09-30，本地通过，真实语音待测）
+
+- 原临时目录 SDK 因缺少 `host/fxr/10.0.11/hostfxr.dll` 无法运行。获用户授权后，从[微软发布元数据](https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json) 取得原版本 10.0.400 的 win-x64 ZIP 和 SHA-512，校验通过后解压到项目忽略目录 `artifacts/toolchains/dotnet-10.0.400/`。`dotnet --info` 确认 SDK 10.0.400、运行时 10.0.11（含 WindowsDesktop）。未全局安装、修改系统 PATH、密钥或 TSF 注册，也未删除旧目录。构建的 CLI_HOME 位于项目 artifacts 内，禁用首次证书生成和全局工具 PATH 更新。
+- 校验值为 `9b8b88590e4da131bfd0da7aa089d0fc04d5418d5f8607ec13d55dc5a17b4399afd54d496c12657fa05c6c6546dc5eab930f26ac6c50f2d3a7712c0fb378c366`。工具目录与 ZIP 已通过 git check-ignore 确认不会进入版本控制。正式源码不依赖该机器的绝对 SDK 路径。
+- 新增本机 WebSocket 测试并先运行旧实现：51 项中 2 项按预期失败（缺少接收日志、无法触发接收日志 sink 失败路径），原有 48 项及关闭诊断测试通过。随后只在 C# Paraformer 的诊断接收路径加入 `websocket_receive`，发送与接收复用原有完成观测逻辑，发送日志格式与字段保持不变。
+- 记录 task、read_seq、message_seq、connect/stream、字节数、消息类型、EndOfMessage、单调时钟 start/completion/resume tick、clock_hz，以及 completion_observed_ms、continuation_delay_ms、固定 outcome。message_seq 对应既有 asr_wire 的 seq；一条分片消息的多次 read 使用同一 message_seq。只读元数据，不输出正文、音频、密钥、远程关闭原因或异常原文。
+- 接收仍只进行一次并等待结果，保留分片组装、原始错误和取消传播；诊断 sink 抛错不能改变接收结果。完成观测不等待 WPF 上下文，解析、事件分发和写入仍在原路径。没有改请求协议、音频采集、模型、100 ms chunk、HUD、TSF native 或接管规则。
+- 计时限制：completion_tick 是受管理接收包装任务的完成观测点，不是 TCP 包到达或服务端发送时间，也仍受线程池调度影响。completion_observed_ms 包含等待下一条消息的时间，不能当作网络 RTT、识别耗时或讲话到文字的延迟；continuation_delay_ms 用于检查完成观测后恢复客户端处理的等待。只比较同一 task 的时序，完整消息以 EndOfMessage=True 为边界，不能把分片 read 当成多次 transcript。日志本身也有少量开销。
+- 最终 Release solution 构建成功，0 警告、0 错误；全部 51 项 C# 测试通过。新增 3 项实连本机 WebSocket 测试覆盖分片 partial/stable/finish 不变、诊断关闭和 sink 失败、正文／密钥不泄漏；还核对单调时钟顺序与毫秒换算。既有共享完成观测测试用受控 UI 暂停验证调度延迟，故障／取消及损坏 sink 测试保持通过。
+- 全部 65 项 Python 测试通过（83.489 秒），显式使用恢复后的 SDK 和新版 C# 测试程序集，包含跨运行时本机连接、延迟 finish、无确认关闭及服务端失败对照。Python asyncio 输出了约 0.11–0.16 秒的调度提示，无测试失败。Python Provider 未修改。本轮没有运行云端 ASR、录音、屏幕录制或新的 native 测试，历史 native 限制不变。
+
+### 一次真实语音验证（待用户执行）
+
+保持已验证的 VPN 条件；先从托盘正常退出旧 Desktop，再在持有环境变量 Key 的 PowerShell 启动独立诊断输出，不重新注册输入法：
+
+```powershell
+Set-Location D:\proj\voice_input
+& .\artifacts\toolchains\dotnet-10.0.400\dotnet.exe .\src\desktop\VoiceInput.Desktop\bin\tsf-receive-timing\Release\net10.0-windows\VoiceInput.Desktop.dll --tsf-asr
+```
+
+在 Windows 记事本选择 Voice Input TSF Probe，按 Ctrl+Alt+J，看到 Speak now 再说话。用正常语速连续说约 20 秒，中间留一次自然停顿，不打字或切换窗口，最后用同一快捷键停止。可读：今天我们测试实时语音输入。我希望说话时，文字能够及时出现在输入框里。现在停顿一下，然后继续说明明天下午的会议安排，最后检查整段文字是否完整保留。
+
+只要求用户反馈出字是否跟得上、有无明显卡顿或报错，不要求手工报毫秒。日志在新输出目录的 `logs/desktop-tsf-asr.log`；分析 task/message_seq 对应的接收完成观测、恢复处理、asr_wire 和 applied。真实语音尚未运行，不能宣称已经提速或确认延迟根因。采集回调／出队精确时间、可靠讲话起点和屏幕实际可见时间仍是未补齐的证据，不为一次诊断扩大范围。
+
+## Phase 6 出字延迟：现有日志分析（2026-09-21）
+
+本轮按用户授权先分析已有数据，未改业务代码、模型、100 ms 音频块或接管策略，未发起新的云端请求或录音。现有数据足以区分「客户端已经收到文字之后的写入等待」与「等待下一批识别结果」，但不足以计算可靠的讲话到屏幕可见延迟。
+
+### 读取与计时口径
+
+- 更正此前判断：文件列表曾报告 `desktop-tsf-asr.log` 长度为 0，但本轮直接 `Get-Content` 能读取完整会话。不能仅凭目录元数据判定日志为空；这不是已经证实的程序日志故障，不为此改动日志代码。
+- 在同一个 session 内，按接收顺序将 `asr_received` 与 `applied` 配对，并逐项校验 segment、kind、length；下表已确认写入的配对无不匹配。差值是同进程 UTC 日志时间差，缺少 monotonic 端到端锚点，不能夸大精度。另用已记录的 Stopwatch `roundtrip_ms` 交叉核对。
+- `applied` 表示 native 写入及协议确认成功，不是画面渲染完成。partial 间隔仅比较同一 segment 的相邻 partial，排除跨句间隔；同一句内的停顿仍可能包含在内。它不是逐字延迟或 provider 内部推理耗时。
+
+| 用户测试／会话开始时间（本地） | partial / stable 已确认写入 | 收到文字到写入确认：中位／最大 ms | 同段 partial 返回间隔：中位／最大 ms |
+| --- | --- | --- | --- |
+| Notepad 连续输入，20:00:14 | 34 / 8 | 23.484 / 54.852 | 511.854 / 1054.928 |
+| Chrome 基础输入，20:38:07 | 17 / 2 | 25.564 / 35.705 | 503.303 / 1413.560 |
+| Chrome 后续接管轮，20:40:50 | 12 / 0 | 23.238 / 60.216 | 502.225 / 1123.753 |
+| Chrome 后续接管轮，20:41:16 | 9 / 0 | 9.553 / 39.840 | 507.325 / 697.430 |
+| Chrome 后续接管轮，20:41:30 | 6 / 0 | 26.697 / 32.839 | 1022.424 / 1395.964 |
+| Chrome 后续接管轮，20:41:42 | 12 / 0 | 18.012 / 33.251 | 501.063 / 799.731 |
+
+会话 ID 依次为 `469657e9e09442aa89d9f805af3be09e`、`bce19846b1b049a59be150f9ce89500c`、`9a2fd04833424eeba12b4251470dbcb6`、`1db8a11ea33a4ce99d0c1cac8b7cc0a8`、`fd3eb120432946b0a8b41429f9b73ade`、`c5653d235a4d440ca9f347457ba67b3c`。接管轮的具体键鼠动作没有逐会话可靠标记，不自行分配动作名称。
+
+### 结论与边界
+
+1. 已接收文字后的写入通道没有出现与 0.5–1 秒返回间隔同量级的积压。Chrome 基础轮 19 个有效 result-generated、19 个 asr_received、19 个 applied 对应；接管轮在取消前也未发现中间有效 partial 被合并丢弃。当前证据优先指向识别结果到达之前的路径或返回节奏，不支持先改 TSF 写入速度。
+2. 20:41:16 会话中，最后一次已写入 partial 长度为 14；`session_cancelled` 为 12:41:23.2493825 UTC，长度 15 的下一次 partial 在 12:41:23.2633915 才记录到达，约晚 14 ms，之后没有 asr_received/applied。该具体样本说明接管后的迟到结果未补写。长度不包含实际正文，不能断言它就是用户举例的第四个字。
+3. 20:33:41 会话的主日志现在明确记录 `asr_connection mode=cold reason=expired`，采集开始时 queued_chunks=0。该轮收到 10 次 partial，仅 9 次有写入确认，最后一次处于取消边界；未确认写入不得标为已显示或自动重放。
+4. 剩余缺口：`asr_wire` 在 ReceiveAsync 恢复并解析时写出，不是底层网络到达时刻，尚不能区分服务端等待、网络传输和客户端接收调度。`chunk_captured` 实际在消费音频队列时记录，而非麦克风回调／真实语音起点；RMS 不作为已验证 speech_start。provider 的 begin_ms 还可能包含预热静音，不能直接减本地录音开始时间。
+5. 因此不能声称已测得真实 speech-to-visible latency、已确认 Paraformer 本身慢、消除了所有本地调度问题或已经提速。此次只是收窄排查范围，不添加任何平滑延迟、不提前换模型、不改成 50 ms chunk。
+
+后续最小诊断方向：优先核对并区分音频采集／出队与 WebSocket 接收完成／恢复执行的时间边界，保留 session/update 关联，再决定是否需要同一句话的受控实测。真实讲话和屏幕可见时间没有可靠证据时继续标为未知。尚未新增这些埋点；不默认开启录屏、保存原始音频或修改系统配置。
+
+## Phase 6 真实输入复测与接管反馈（2026-09-21）
+
+本节是最新验收记录，更新下方历史章节中的待测状态。本轮只记录用户实测和已读取日志，不改程序、不重新运行 build/unit tests、不调整 VPN 或系统设置。Phase 6 仍进行中，不能把有限场景通过等同于延迟达标或所有网络可用。
+
+### 传输对照与网络条件
+
+- v2 云端记录位于 `artifacts/asr-send-ab/20260921-191128-f99e69eb/`、`20260921-194441-d71723d6/` 和 `20260921-194749-3379f72d/`（后两者同属 `artifacts/asr-send-ab/`）。三组均收到四次 task-finished；测试是合成静音，不能验证识别准确率。
+- 19:11 组 C# 发送 10 秒音频分别耗时 16.32／10.01 秒，首轮最大单次发送 1572.52 ms；Python 下层发送缓冲最高 29070／25840 bytes，第二轮结束确认等待 8.71 秒。本地 send 快速返回不等于服务端已收到。
+- 19:44 组 C# 最大单次发送 8.29／988.56 ms，第二轮有 17 次超过 100 ms，发送阶段 11.63 秒。四轮结束确认等待 1.28–3.57 秒。
+- 用户明确说明 19:47 组是「切换 VPN 后」，不是手机热点对照。该组四轮发送阶段均约 10 秒，无单次发送超过 100 ms；C# 最大 9.00／6.75 ms，四轮结束确认等待 33–70 ms。
+- 同时观察到 C# 系统代理解析从 direct 变为 proxy，Python 地址族从 IPv4 变为 IPv6。代理解析不等于实际路由抓包。证据支持网络路径显著影响本次体验，但不能定位 VPN、运营商、协议栈或服务端中的唯一根因，也不承诺任意 VPN 更快。原网络条件下的间歇卡顿仍未解决。
+
+### 真实输入证据
+
+保持切换后的 VPN，使用 `tsf-ready-capture` Desktop 的 `--tsf-asr` 模式及既有 TSF 注册。音频仍为 16 kHz、mono、PCM16、100 ms。用户操作目标为 Windows 记事本及 Chrome 内 ChatGPT 输入框；没有测试发送消息。
+
+| 场景 | 日志或用户反馈 | 验收边界 |
+| --- | --- | --- |
+| 记事本连续输入与自然停顿 | 20:00 轮采集／发送 445 块，丢弃 0；最大 send 0.589 ms；native 记录 34 次 partial、8 次 stable 写入，均成功。用户确认停顿后可继续 | 本轮多段输入通过，不代表所有会话或网络稳定 |
+| 三轮开始／停止／重启 | 用户确认三轮均无问题，文字保留、无重复或报错 | 用户实测通过，不将其描述为自动化测试 |
+| 闲置后重新开始 | 20:30:15 停止到 20:33:41 启动间隔约 206 秒；启动到 provider_ready 约 2.67 秒，第一块采集在 ready 后。78 块全部发送，丢弃 0，最大 send 1.643 ms；9 次 partial 写入成功，随后有停止快捷键记录 | 后续直接读取主日志确认 cold / expired；详见上方延迟分析及取消边界说明 |
+| 闲置后停止保留 | 该轮停止前没有 stable 写入记录；用户明确确认可见文字保留、没有报错 | 验证的是停止时保留可见 interim，不是收到了最终 stable，也未逐字核验识别准确率 |
+| Chrome / ChatGPT 基础真实输入 | 20:38 轮 176 块全部发送，丢弃 0，最大 send 0.599 ms；17 次 partial、2 次 stable 写入成功。用户确认两句保留，无重复或报错 | 该输入框、本次网络条件下基础测试通过 |
+| 真实语音下人工接管 | 用户按手动打字、移动光标、点击地址栏三项反馈「都会被打断」；出字落后讲话时，只保留当时已经显示的文字 | 确认用户观察到停止生效；未独立逐项抓取屏幕或证明所有控件、所有时序安全 |
+
+音频日志：`src/desktop/VoiceInput.Desktop/bin/tsf-ready-capture/Release/net10.0-windows/logs/desktop-audio-debug.log`。已核对的 native 日志包括 `%TEMP%/voice-input-tsf-21584.log` 和 `%TEMP%/voice-input-tsf-19392.log`。日志写入成功回执不能代替实际可见效果，后者以上述用户确认为准。最初目录查询的主日志长度为 0 不代表实际内容为空，后续已直接读取并更正，见上方延迟分析；不能仅凭日志没有错误代替用户体验验收。
+
+### 接管时少字与下一步
+
+用户描述：已经说出四个字，输入框只显示三个字时进行接管，最后只保留三个字。现有策略是在键鼠或焦点变化后停止后续写入、保留已显示文字，不自动补写尚未显示或迟到的结果；这符合既有停止边界，并不证明实时延迟已经合格。
+
+下一步仅定位「讲话到输入框出字」的等待时间，尚未开始实施：先核对现有时间戳和会话／更新对应关系，区分声音采集发送、ASR 返回文字、客户端把返回文字写入目标这几个环节。客户端写入回执与屏幕实际可见是不同观察点；缺少可靠的讲话／可见时间证据时，应标为未知或人工观察，不能用 send 耗时、字数差或不同起点的时钟算出假精确端到端延迟。必要的最小补充诊断与测试步骤另行明确，不默认录屏或保存原始音频。
+
+不改变接管停止策略，不以扩大缓冲或迟到补字掩盖延迟，不进入 Document Engine、AI Cleanup、Voice Edit 或更多应用适配。当前记录未新增架构决策。
+
 ## Phase 6 Transport Observation V2 (2026-09-17)
 
 Status: the first cloud comparison is recorded below. It reproduces slow C# send completion, but does not identify the underlying transport cause. The enhanced diagnostic runner is locally verified; its new cloud run remains pending. Production Desktop, providers, microphone, TSF, credentials and system network settings are unchanged.

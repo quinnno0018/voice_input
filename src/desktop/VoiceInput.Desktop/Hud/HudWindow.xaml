@@ -21,6 +21,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="18" />
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="28" />
             </Grid.ColumnDefinitions>
             <Ellipse x:Name="AccentDot"
                      Width="9"
@@ -41,6 +42,40 @@
                            TextTrimming="CharacterEllipsis"
                            Text="Speak now" />
             </StackPanel>
+            <Button x:Name="DismissErrorButton"
+                    Grid.Column="2"
+                    Width="24"
+                    Height="24"
+                    VerticalAlignment="Top"
+                    HorizontalAlignment="Right"
+                    Visibility="Hidden"
+                    Focusable="False"
+                    IsTabStop="False"
+                    ToolTip="Close error"
+                    AutomationProperties.Name="Close error"
+                    FontFamily="Segoe MDL2 Assets"
+                    FontSize="12"
+                    Foreground="#D6DBDF"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Content="&#xE711;"
+                    Click="OnDismissError">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder" Background="{TemplateBinding Background}" CornerRadius="3">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#45515B" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#59636B" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
         </Grid>
     </Border>
 </Window>

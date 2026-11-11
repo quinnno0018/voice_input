@@ -35,6 +35,7 @@ public partial class HudWindow : Window
         ResetPartialDisplay();
         AccentDot.Fill = ListeningBrush;
         StatusText.Text = "Listening";
+        DismissErrorButton.Visibility = Visibility.Hidden;
         TranscriptText.Text = detail;
         ShowWithoutActivation();
     }
@@ -65,6 +66,7 @@ public partial class HudWindow : Window
 
     private void RenderPartial(string text)
     {
+        DismissErrorButton.Visibility = Visibility.Hidden;
         AccentDot.Fill = ListeningBrush;
         StatusText.Text = "Listening";
         TranscriptText.Text = text;
@@ -76,6 +78,7 @@ public partial class HudWindow : Window
         ResetPartialDisplay();
         AccentDot.Fill = ErrorBrush;
         StatusText.Text = "Error";
+        DismissErrorButton.Visibility = Visibility.Visible;
         TranscriptText.Text = message;
         ShowWithoutActivation();
     }
@@ -84,6 +87,11 @@ public partial class HudWindow : Window
     {
         ResetPartialDisplay();
         Hide();
+    }
+
+    private void OnDismissError(object sender, RoutedEventArgs e)
+    {
+        HideHud();
     }
 
     private void OnPartialTimer(object? sender, EventArgs e)

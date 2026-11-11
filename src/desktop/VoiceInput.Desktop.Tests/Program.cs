@@ -12,6 +12,14 @@ if (args.Length > 0 && args[0] == "--send-probe")
 
 var tests = new (string Name, Action Run)[]
 {
+    ("Error HUD can be dismissed and reused without activation", TestDismissErrorHud),
+    ("Warm handoff drains an in-flight send without cancelling it", WarmHandoffTests.Drain),
+    ("Warm handoff timeout disposes the old provider before fallback", WarmHandoffTests.Timeout),
+    ("Warm handoff cancellation never starts a cold connection", WarmHandoffTests.Cancel),
+    ("Cancelled warm send cannot be claimed as a healthy connection", WarmHandoffTests.CancelledSend),
+    ("Receive timing preserves fragmented transcripts and excludes content", ReceiveDiagnosticsTests.Loopback),
+    ("Receive timing with a failed diagnostic sink preserves results", ReceiveDiagnosticsTests.BrokenSink),
+    ("Receive without diagnostics preserves results", ReceiveDiagnosticsTests.Disabled),
     ("Send probe observes late finish without cancellation or retry", SendProbeTests.FinishObservation),
     ("Network probe excludes nonnumeric event payloads", SendProbeTests.NumericTelemetry),
     ("AppConfig uses the Windows MVP baseline", TestAppConfigDefaults),
@@ -116,6 +124,48 @@ static void TestSentenceSilenceConfig()
 
     Throws<FormatException>(() => AppConfig.Load(name =>
         name == "VOICE_INPUT_MAX_SENTENCE_SILENCE_MS" ? "1000" : null));
+}
+
+static void TestDismissErrorHud()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        HudWindow? hud = null;
+        try
+        {
+            hud = new HudWindow();
+            var close = hud.FindName("DismissErrorButton") as System.Windows.Controls.Button;
+            True(close is not null);
+            False(hud.ShowActivated);
+            False(close!.Focusable);
+            Equal(System.Windows.Visibility.Hidden, close.Visibility);
+            hud.ShowError("Test error");
+            True(hud.IsVisible);
+            Equal(System.Windows.Visibility.Visible, close.Visibility);
+            close.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            False(hud.IsVisible);
+            hud.ShowListening();
+            True(hud.IsVisible);
+            Equal(System.Windows.Visibility.Hidden, close.Visibility);
+            hud.ShowError("Second error");
+            Equal(System.Windows.Visibility.Visible, close.Visibility);
+            close.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            False(hud.IsVisible);
+            hud.ShowConnecting();
+            Equal(System.Windows.Visibility.Hidden, close.Visibility);
+        }
+        catch (Exception e) { failure = e; }
+        finally
+        {
+            hud?.Close();
+            System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+        }
+    });
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+    if (failure is not null) throw failure;
 }
 
 static void TestTsfWarmConfig()
