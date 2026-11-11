@@ -1,3 +1,7 @@
+# voice_input
+
+语音输入法
+
 # AI Real-Time Voice Input
 
 面向 Windows 的实时语音输入工具：优先让文字随说随出现，再逐步加入可控的局部编辑能力。
